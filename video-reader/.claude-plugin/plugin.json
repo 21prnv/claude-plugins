@@ -1,0 +1,8 @@
+{
+  "name": "video-reader",
+  "description": "Let Claude 'watch' a video by extracting timestamped frames with ffmpeg, then reading them as images.",
+  "version": "0.1.0",
+  "author": { "name": "patil" },
+  "keywords": ["video", "ffmpeg", "frames", "vision"],
+  "license": "MIT"
+}
