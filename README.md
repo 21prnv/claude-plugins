@@ -6,7 +6,7 @@ A personal [Claude Code](https://code.claude.com) plugin marketplace.
 
 | Plugin | Description |
 |--------|-------------|
-| [video-reader](./video-reader) | Let Claude "watch" a video by extracting timestamped frames with ffmpeg, then reading them as images. |
+| [video-reader](./video-reader) | Let Claude "watch" and "hear" a video: timestamped frames via ffmpeg + a timestamped transcript via whisper.cpp. |
 
 ## Install
 
@@ -25,5 +25,6 @@ Then use it:
 
 ## Requirements
 
-- `video-reader` needs ffmpeg: `brew install ffmpeg` (on Apple Silicon under
-  Rosetta, use `arch -arm64 brew install ffmpeg`).
+- `video-reader` needs ffmpeg (`brew install ffmpeg`) and, for audio
+  transcription, whisper-cpp (`brew install whisper-cpp`) plus a whisper model.
+  See the [plugin README](./video-reader) for the one-line model download.

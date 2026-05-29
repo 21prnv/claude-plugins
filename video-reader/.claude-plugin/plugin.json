@@ -1,8 +1,8 @@
 {
   "name": "video-reader",
-  "description": "Let Claude 'watch' a video by extracting timestamped frames with ffmpeg, then reading them as images.",
-  "version": "0.1.0",
+  "description": "Let Claude 'watch' and 'hear' a video: timestamped frames via ffmpeg + a timestamped transcript via whisper.cpp.",
+  "version": "0.2.0",
   "author": { "name": "patil" },
-  "keywords": ["video", "ffmpeg", "frames", "vision"],
+  "keywords": ["video", "ffmpeg", "frames", "vision", "whisper", "transcription", "audio"],
   "license": "MIT"
 }
