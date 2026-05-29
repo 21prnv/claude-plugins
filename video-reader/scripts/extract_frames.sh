@@ -100,12 +100,18 @@ interval_filter() { # echoes an fps filter sized to MAX_FRAMES (or --fps)
 }
 
 # --- extract ------------------------------------------------------------------
+# Scene mode is great for slideshows / hard cuts, but talking-head and
+# screen-demo videos have few cuts, leaving big visual gaps. So if scene
+# detection yields fewer frames than ~1 per 10s (a "sparse" result), fall back
+# to even interval sampling for reliable coverage.
 USED_MODE="$MODE"
 if [[ "$MODE" == "scene" ]]; then
   N="$(run_extract "select='gt(scene,$SCENE_THRESHOLD)'")"
-  if [[ "$N" -eq 0 ]]; then
-    echo "NOTE: scene detection found no cuts above threshold $SCENE_THRESHOLD; falling back to interval sampling." >&2
-    USED_MODE="interval (scene found nothing)"
+  MIN_COVERAGE="$(awk -v d="$DUR" -v m="$MAX_FRAMES" 'BEGIN{
+    t=int(d/10); if(t<1)t=1; if(t>m)t=m; print t }')"
+  if [[ "$N" -lt "$MIN_COVERAGE" ]]; then
+    echo "NOTE: scene detection found only $N frame(s) (threshold $SCENE_THRESHOLD) — too sparse for a ${DUR}s video; falling back to interval sampling for even coverage." >&2
+    USED_MODE="interval (scene too sparse: $N frame(s))"
     N="$(run_extract "$(interval_filter)")"
   fi
 else
