@@ -1,0 +1,14 @@
+{
+  "name": "prnv-plugins",
+  "owner": {
+    "name": "21prnv"
+  },
+  "description": "Personal Claude Code plugin marketplace.",
+  "plugins": [
+    {
+      "name": "video-reader",
+      "source": "./video-reader",
+      "description": "Let Claude 'watch' a video by extracting timestamped frames with ffmpeg, then reading them as images."
+    }
+  ]
+}
