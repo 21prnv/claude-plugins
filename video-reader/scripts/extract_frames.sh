@@ -7,12 +7,14 @@
 #
 # Modes:
 #   interval (default) : evenly samples the whole video. The interval is chosen
-#                        automatically so the frame count stays <= --max-frames.
+#                        automatically so the frame count stays near --max-frames.
 #   --scene            : only grabs frames where the picture changes a lot
 #                        (good for screen recordings / slideshows / cut scenes).
+#                        Falls back to interval sampling if it finds nothing.
 #
-# Prints a manifest (frame file -> timestamp) to stdout and writes it to
-# OUTDIR/manifest.tsv. Frames are written as OUTDIR/frame_%04d.jpg.
+# Timestamps are the ACTUAL presentation time of each extracted frame, read back
+# from ffmpeg. Prints a manifest (frame file -> timestamp) to stdout and writes
+# it to OUTDIR/manifest.tsv. Frames: OUTDIR/frame_%04d.jpg.
 
 set -euo pipefail
 
@@ -64,64 +66,83 @@ fmt_ts() { # seconds -> H:MM:SS or M:SS
   }'
 }
 
+count_frames() { ls "$OUTDIR"/frame_*.jpg 2>/dev/null | wc -l | tr -d ' '; }
+
 MANIFEST="$OUTDIR/manifest.tsv"
-: > "$MANIFEST"
+META="$OUTDIR/_meta.txt"
+
+# run_extract <select-filter> : runs ffmpeg, returns number of frames produced.
+# format=yuvj420p / -pix_fmt yuvj420p: screen recordings use full-range YUV that
+# the mjpeg encoder otherwise rejects. metadata=print logs each frame's pts_time.
+run_extract() {
+  local select="$1"
+  rm -f "$OUTDIR"/frame_*.jpg "$META"
+  ffmpeg -nostdin -hide_banner -loglevel error -i "$VIDEO" \
+    -vf "${select},scale=${WIDTH}:-1,format=yuvj420p,metadata=print:file=${META}" \
+    -fps_mode vfr -pix_fmt yuvj420p -q:v 3 "$OUTDIR/frame_%04d.jpg" -y || true
+  count_frames
+}
+
+interval_filter() { # echoes an fps filter sized to MAX_FRAMES (or --fps)
+  local interval
+  if [[ -n "$FPS" ]]; then
+    interval="$(awk -v f="$FPS" 'BEGIN{printf "%.4f", 1/f}')"
+  else
+    interval="$(awk -v d="$DUR" -v m="$MAX_FRAMES" 'BEGIN{
+      if (d<=0){print 1; exit} i=d/m; if(i<0.5)i=0.5; printf "%.4f", i }')"
+  fi
+  echo "fps=1/${interval}"
+}
 
 # --- extract ------------------------------------------------------------------
+USED_MODE="$MODE"
 if [[ "$MODE" == "scene" ]]; then
-  META="$OUTDIR/_meta.txt"
-  ffmpeg -nostdin -hide_banner -loglevel error -i "$VIDEO" \
-    -vf "select='gt(scene,$SCENE_THRESHOLD)',scale=${WIDTH}:-1,metadata=print:file=$META" \
-    -vsync vfr -q:v 3 "$OUTDIR/frame_%04d.jpg" -y
-
-  # Pull pts_time for each selected frame, in order.
-  mapfile -t TIMES < <(grep -o 'pts_time:[0-9.]*' "$META" 2>/dev/null | cut -d: -f2 || true)
-  i=0
-  for f in "$OUTDIR"/frame_*.jpg; do
-    [[ -e "$f" ]] || continue
-    t="${TIMES[$i]:-0}"
-    printf '%s\t%ss\t%s\n' "$(basename "$f")" "$t" "$(fmt_ts "$t")" >> "$MANIFEST"
-    i=$((i+1))
-  done
-
-  # If scene detection found too many, keep an evenly-spaced subset.
-  COUNT=$(grep -c . "$MANIFEST" || echo 0)
-  if (( COUNT > MAX_FRAMES )); then
-    echo "NOTE: scene detection found $COUNT frames; keeping ~$MAX_FRAMES evenly spaced." >&2
-    STEP=$(( (COUNT + MAX_FRAMES - 1) / MAX_FRAMES ))
-    awk -v step="$STEP" 'NR % step == 1' "$MANIFEST" > "$MANIFEST.keep"
-    # delete frames not kept
-    comm -23 <(ls "$OUTDIR"/frame_*.jpg | xargs -n1 basename | sort) \
-             <(cut -f1 "$MANIFEST.keep" | sort) | while read -r drop; do
-      rm -f "$OUTDIR/$drop"
-    done
-    mv "$MANIFEST.keep" "$MANIFEST"
+  N="$(run_extract "select='gt(scene,$SCENE_THRESHOLD)'")"
+  if [[ "$N" -eq 0 ]]; then
+    echo "NOTE: scene detection found no cuts above threshold $SCENE_THRESHOLD; falling back to interval sampling." >&2
+    USED_MODE="interval (scene found nothing)"
+    N="$(run_extract "$(interval_filter)")"
   fi
 else
-  if [[ -z "$FPS" ]]; then
-    INTERVAL="$(awk -v d="$DUR" -v m="$MAX_FRAMES" 'BEGIN{
-      if (d<=0) {print 1; exit}
-      i=d/m; if(i<0.5) i=0.5; printf "%.4f", i }')"
-  else
-    INTERVAL="$(awk -v f="$FPS" 'BEGIN{printf "%.4f", 1/f}')"
-  fi
-  ffmpeg -nostdin -hide_banner -loglevel error -i "$VIDEO" \
-    -vf "fps=1/${INTERVAL},scale=${WIDTH}:-1" -q:v 3 "$OUTDIR/frame_%04d.jpg" -y
-
-  i=0
-  for f in "$OUTDIR"/frame_*.jpg; do
-    [[ -e "$f" ]] || continue
-    t="$(awk -v i="$i" -v iv="$INTERVAL" 'BEGIN{printf "%.2f", i*iv}')"
-    printf '%s\t%ss\t%s\n' "$(basename "$f")" "$t" "$(fmt_ts "$t")" >> "$MANIFEST"
-    i=$((i+1))
-  done
+  N="$(run_extract "$(interval_filter)")"
 fi
 
-NFRAMES=$(grep -c . "$MANIFEST" 2>/dev/null || echo 0)
+# --- build manifest from actual timestamps ------------------------------------
+# (portable read loop; macOS bash 3.2 has no `mapfile`)
+TIMES=()
+while IFS= read -r line; do TIMES+=("$line"); done \
+  < <(grep -o 'pts_time:[0-9.]*' "$META" 2>/dev/null | cut -d: -f2 || true)
+
+: > "$MANIFEST"
+i=0
+for f in "$OUTDIR"/frame_*.jpg; do
+  [[ -e "$f" ]] || continue
+  t="${TIMES[$i]:-0}"
+  printf '%s\t%ss\t%s\n' "$(basename "$f")" "$t" "$(fmt_ts "$t")" >> "$MANIFEST"
+  i=$((i+1))
+done
+
+# --- if too many frames, keep an evenly-spaced subset -------------------------
+COUNT="$(count_frames)"
+if [[ "$COUNT" -gt "$MAX_FRAMES" ]]; then
+  echo "NOTE: found $COUNT frames; keeping ~$MAX_FRAMES evenly spaced." >&2
+  STEP=$(( (COUNT + MAX_FRAMES - 1) / MAX_FRAMES ))
+  awk -v step="$STEP" 'NR % step == 1' "$MANIFEST" > "$MANIFEST.keep"
+  comm -23 <(ls "$OUTDIR"/frame_*.jpg | xargs -n1 basename | sort) \
+           <(cut -f1 "$MANIFEST.keep" | sort) | while read -r drop; do
+    rm -f "$OUTDIR/$drop"
+  done
+  mv "$MANIFEST.keep" "$MANIFEST"
+  COUNT="$(count_frames)"
+fi
+
+rm -f "$META"
+
+# --- report -------------------------------------------------------------------
 echo "==================================================================="
-echo "Extracted $NFRAMES frame(s) to:"
+echo "Extracted $COUNT frame(s) to:"
 echo "  $OUTDIR"
-echo "Video duration: ${DUR}s | mode: $MODE | frame width: ${WIDTH}px"
+echo "Video duration: ${DUR}s | mode: ${USED_MODE} | frame width: ${WIDTH}px"
 echo "Manifest (frame -> timestamp):"
 echo "-------------------------------------------------------------------"
 cat "$MANIFEST"
