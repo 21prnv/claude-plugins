@@ -1,7 +1,7 @@
 {
   "name": "video-reader",
   "description": "Let Claude 'watch' and 'hear' a video: timestamped frames via ffmpeg + a timestamped transcript via whisper.cpp.",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "author": { "name": "patil" },
   "keywords": ["video", "ffmpeg", "frames", "vision", "whisper", "transcription", "audio"],
   "license": "MIT"

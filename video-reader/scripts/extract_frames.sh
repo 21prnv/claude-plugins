@@ -77,13 +77,14 @@ META="$OUTDIR/_meta.txt"
 
 # run_extract <select-filter> : runs ffmpeg, returns number of frames produced.
 # format=yuvj420p / -pix_fmt yuvj420p: screen recordings use full-range YUV that
-# the mjpeg encoder otherwise rejects. metadata=print logs each frame's pts_time.
+# the mjpeg encoder otherwise rejects. The showinfo filter logs each output
+# frame's real pts_time to stderr (at info level), which we capture to $META.
 run_extract() {
   local select="$1"
   rm -f "$OUTDIR"/frame_*.jpg "$META"
-  ffmpeg -nostdin -hide_banner -loglevel error -i "$VIDEO" \
-    -vf "${select},scale=${WIDTH}:-1,format=yuvj420p,metadata=print:file=${META}" \
-    -fps_mode vfr -pix_fmt yuvj420p -q:v 3 "$OUTDIR/frame_%04d.jpg" -y || true
+  ffmpeg -nostdin -hide_banner -loglevel info -i "$VIDEO" \
+    -vf "${select},scale=${WIDTH}:-1,format=yuvj420p,showinfo" \
+    -fps_mode vfr -pix_fmt yuvj420p -q:v 3 "$OUTDIR/frame_%04d.jpg" -y 2>"$META" || true
   count_frames
 }
 
