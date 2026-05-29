@@ -66,7 +66,11 @@ fmt_ts() { # seconds -> H:MM:SS or M:SS
   }'
 }
 
-count_frames() { ls "$OUTDIR"/frame_*.jpg 2>/dev/null | wc -l | tr -d ' '; }
+count_frames() { # count frames without a pipeline that can trip pipefail/set -e
+  local n=0 f
+  for f in "$OUTDIR"/frame_*.jpg; do [[ -e "$f" ]] && n=$((n+1)); done
+  echo "$n"
+}
 
 MANIFEST="$OUTDIR/manifest.tsv"
 META="$OUTDIR/_meta.txt"
